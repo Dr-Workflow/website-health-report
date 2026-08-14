@@ -458,7 +458,7 @@ async function runAudit(
   finishStage(10);
 
   // ─── 12. Social Presence ───
-  updateProgress(11, 95, "Checking social media presence...");
+  updateProgress(11, 88, "Checking social media presence...");
   const socialLinks = allLinks.filter(h =>
     h.includes("facebook.com") || h.includes("twitter.com") || h.includes("x.com") ||
     h.includes("instagram.com") || h.includes("linkedin.com") || h.includes("youtube.com") ||
@@ -488,6 +488,50 @@ async function runAudit(
   });
   if (socialPlatforms.length === 0) recommendations.push("No social media links found on the page — add links to your social profiles for social proof and engagement.");
   finishStage(11);
+
+  // ─── 13. AI Discoverability ───
+  updateProgress(12, 95, "Checking AI discoverability (llms.txt, agents.json)...");
+  let hasLlmsTxt = false;
+  let hasAgentsJson = false;
+  let llmsTxtContent = "";
+  let agentsJsonContent: any = null;
+  try {
+    const llmsData = await fetchPage(`${hasSSL ? "https" : "http"}://${domain}/llms.txt`);
+    hasLlmsTxt = llmsData.status === 200 && llmsData.html.length > 10;
+    if (hasLlmsTxt) llmsTxtContent = llmsData.html.substring(0, 200);
+  } catch {}
+  try {
+    const agentsData = await fetchPage(`${hasSSL ? "https" : "http"}://${domain}/agents.json`);
+    hasAgentsJson = agentsData.status === 200 && agentsData.html.length > 10;
+    if (hasAgentsJson) {
+      try { agentsJsonContent = JSON.parse(agentsData.html); } catch {}
+    }
+  } catch {}
+
+  // Also check for AI-friendly meta tags
+  const hasAiMetaDescription = !!doc.querySelector('meta[name="ai-description"]') || !!doc.querySelector('meta[property="ai:description"]');
+  const hasAiInstructions = !!doc.querySelector('meta[name="ai-instructions"]');
+  const hasStructuredDataForAI = hasJsonLd;
+  const hasSemanticHtml = doc.querySelectorAll("article, section, nav, main, header, footer, aside").length >= 3;
+  const hasCanonicalForAI = hasCanonical;
+
+  const aiChecks = [hasLlmsTxt, hasAgentsJson, hasStructuredDataForAI, hasSemanticHtml, hasCanonicalForAI, hasAiMetaDescription || hasAiInstructions];
+  const aiScore = Math.round((aiChecks.filter(Boolean).length / aiChecks.length) * 100);
+  sections.push({
+    key: "aiDiscoverability", title: "AI Discoverability", icon: "🤖", status: aiScore >= 60 ? "good" : aiScore >= 30 ? "warn" : "bad", score: aiScore,
+    summary: `${aiScore}/100 — ${hasLlmsTxt ? "llms.txt ✓" : "llms.txt ✗"}, ${hasAgentsJson ? "agents.json ✓" : "agents.json ✗"}`,
+    items: [
+      { name: "llms.txt", value: hasLlmsTxt ? "Found" : "MISSING", status: hasLlmsTxt ? "good" : "bad", note: hasLlmsTxt ? `Found at /llms.txt — AI models can read this to understand your site` : "CRITICAL for AI search: Create /llms.txt — like robots.txt but for AI models (ChatGPT, Perplexity, Google AI Overviews). Tells AI what your site is about and which pages matter." },
+      { name: "agents.json", value: hasAgentsJson ? "Found" : "MISSING", status: hasAgentsJson ? "good" : "bad", note: hasAgentsJson ? "Found — AI agents can discover your business capabilities" : "IMPORTANT for AI agents: Create /agents.json — structured info for AI agents about what your business does, what actions it supports, and how to contact you. The new machine-readable business card." },
+      { name: "Structured Data (JSON-LD)", value: hasJsonLd ? `${jsonLd.length} blocks` : "None", status: hasJsonLd ? "good" : "warn", note: hasJsonLd ? "AI search engines use this to understand your content" : "Add schema.org structured data — AI search engines (ChatGPT, Perplexity) rely on this to understand your business" },
+      { name: "Semantic HTML", value: hasSemanticHtml ? "Good structure" : "Needs improvement", status: hasSemanticHtml ? "good" : "warn", note: !hasSemanticHtml ? "Use <article>, <section>, <nav>, <main> tags — AI models parse these to understand content structure" : undefined },
+      { name: "Canonical URL", value: hasCanonical ? "Present" : "MISSING", status: hasCanonical ? "good" : "warn", note: hasCanonical ? undefined : "Helps AI models identify the correct version of your page" },
+      { name: "AI-Specific Meta Tags", value: hasAiMetaDescription || hasAiInstructions ? "Found" : "None", status: hasAiMetaDescription || hasAiInstructions ? "good" : "empty", note: !hasAiMetaDescription && !hasAiInstructions ? "Consider adding meta[name=\"ai-description\"] for AI crawlers" : undefined },
+    ],
+  });
+  if (!hasLlmsTxt) recommendations.push("CRITICAL for AI search: Create an /llms.txt file. This is the new standard (like robots.txt for AI) that tells ChatGPT, Perplexity, and Google AI Overviews what your site is about. Without it, AI models may misunderstand or ignore your business.");
+  if (!hasAgentsJson) recommendations.push("IMPORTANT for AI agents: Create an /agents.json file. This gives AI agents structured info about your business — what you do, what actions you support, how to contact you. As AI agents become the primary way users find businesses, this file ensures they can discover and interact with yours.");
+  finishStage(12);
 
   onProgress(100, "Audit complete!", stageStatus.map(() => "done") as any);
 
@@ -584,9 +628,10 @@ function SectionCard({ section, forceExpand }: { section: AuditSection; forceExp
 const STAGE_NAMES = [
   "Tech Stack Detection", "Domain & DNS", "Performance & Speed", "SEO On-Page",
   "Accessibility (ADA)", "Content Quality", "Image Audit", "Link Audit",
-  "Conversion (CRO)", "Mobile Responsiveness", "Security", "Social Presence"
+  "Conversion (CRO)", "Mobile Responsiveness", "Security", "Social Presence",
+  "AI Discoverability"
 ];
-const STAGE_ICONS = ["🔧", "🌐", "⚡", "🔍", "♿", "📝", "🖼️", "🔗", "💰", "📱", "🛡️", "📊"];
+const STAGE_ICONS = ["🔧", "🌐", "⚡", "🔍", "♿", "📝", "🖼️", "🔗", "💰", "📱", "🛡️", "📊", "🤖"];
 
 // ─── Main App ─────────────────────────────────────────────
 type AppState = "landing" | "loading" | "report" | "error";
@@ -597,7 +642,7 @@ export default function App() {
   const [clientName, setClientName] = useState("");
   const [progress, setProgress] = useState(0);
   const [progressLabel, setProgressLabel] = useState("");
-  const [stageStatus, setStageStatus] = useState<("pending" | "running" | "done")[]>(new Array(12).fill("pending"));
+  const [stageStatus, setStageStatus] = useState<("pending" | "running" | "done")[]>(new Array(13).fill("pending"));
   const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
   const [error, setError] = useState("");
   const [isDark, setIsDark] = useState(true);
@@ -620,7 +665,7 @@ export default function App() {
     if (!cleanUrl) { setError("Please enter a website URL."); return; }
     if (!cleanUrl.startsWith("http")) cleanUrl = "https://" + cleanUrl;
     setError(""); setState("loading"); setProgress(0);
-    setStageStatus(new Array(12).fill("pending"));
+    setStageStatus(new Array(13).fill("pending"));
     try {
       const result = await runAudit(cleanUrl, (pct, label, stages) => {
         setProgress(pct); setProgressLabel(label); setStageStatus(stages);
@@ -653,7 +698,7 @@ export default function App() {
         <div className="container">
           <div className="hero">
             <h1>Website Health Report</h1>
-            <p>The most comprehensive website audit available. We run 12 checks — tech stack, performance, SEO, accessibility, content, images, links, conversion, mobile, security, and social — and produce a professional PDF report any VA would be proud to hand to a client.</p>
+            <p>The most comprehensive website audit available. We run 13 checks — tech stack, performance, SEO, accessibility, content, images, links, conversion, mobile, security, social presence, and AI discoverability — and produce a professional PDF report any VA would be proud to hand to a client.</p>
             <div className="input-card">
               <form onSubmit={handleAudit}>
                 <div className="input-group">
@@ -672,7 +717,7 @@ export default function App() {
           </div>
           <div className="how-it-works">
             <div className="step"><div className="step-icon">1</div><h3>Enter URL</h3><p>Paste in any website URL and client name. No login or credentials needed.</p></div>
-            <div className="step"><div className="step-icon">2</div><h3>We Audit 12 Areas</h3><p>Tech stack, domain, performance, SEO, accessibility, content, images, links, conversion, mobile, security, and social presence.</p></div>
+            <div className="step"><div className="step-icon">2</div><h3>We Audit 13 Areas</h3><p>Tech stack, domain, performance, SEO, accessibility, content, images, links, conversion, mobile, security, social presence, and AI discoverability (llms.txt, agents.json).</p></div>
             <div className="step"><div className="step-icon">3</div><h3>Get Your Report</h3><p>Professional PDF with health score, detailed findings, and prioritized recommendations — ready to hand to your client.</p></div>
           </div>
         </div>
@@ -754,7 +799,7 @@ export default function App() {
             <p><strong>Client:</strong> {clientName || "N/A"}</p>
             <p><strong>URL:</strong> {auditedUrl}</p>
             <p><strong>Health Score:</strong> {auditResult!.overallScore}/100</p>
-            <p><strong>Audit Areas:</strong> 12</p>
+            <p><strong>Audit Areas:</strong> 13</p>
           </div>
           <div className="print-cover-note">
             This report was generated by HeyJoe AI using read-only analysis of the public website listed above.
@@ -802,7 +847,7 @@ export default function App() {
 
         <div style={{ textAlign: "center", padding: "32px 0 0.8in", color: "var(--text-dim)", fontSize: 12 }}>
           <p>Generated by HeyJoe AI — Website Health Report</p>
-          <p style={{ marginTop: 4 }}>{dateStr} · Read-only audit · 12 audit areas checked · {auditedUrl}</p>
+          <p style={{ marginTop: 4 }}>{dateStr} · Read-only audit · 13 audit areas checked · {auditedUrl}</p>
         </div>
       </div>
     </div>
